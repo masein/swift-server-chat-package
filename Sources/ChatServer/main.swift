@@ -6,12 +6,16 @@ let app = Application(env)
 defer {
     app.shutdown()
 }
-var clientConnections = Set<WebSocket>()
+var clientsSet = Set<Client>()
+var clientsArray: [Client] = []
+var currentClient: Client!
+
 app.webSocket("chat") { req, client in
-    clientConnections.insert(client)
+    // since our hash function is on connection, username is not important
+    currentClient = Client(username: "Kossher", connection: client)
     
     client.onClose.whenComplete { _ in
-        clientConnections.remove(client)
+        clientsSet.remove(currentClient)
     }
     
     client.onText { _, text in
@@ -21,14 +25,24 @@ app.webSocket("chat") { req, client in
             }
             let incomingMessage = try JSONDecoder().decode(SubmittedChatMessage.self, from: data)
             let outgoingMessage = ReceivingChatMessage(message: incomingMessage.message,
-                                                       user: incomingMessage.user,
-                                                       userID: incomingMessage.userID)
+                                                       sender: incomingMessage.sender,
+                                                       senderID: incomingMessage.senderID,
+                                                       receiver: incomingMessage.receiver)
+            currentClient = Client(username: incomingMessage.sender,
+                                   connection: currentClient.connection)
+            clientsSet.insert(currentClient)
             let json = try JSONEncoder().encode(outgoingMessage)
             guard let jsonString = String(data: json, encoding: .utf8) else {
                 return
             }
-            for connection in clientConnections {
-                connection.send(jsonString)
+            print("Incomming message: \(incomingMessage)")
+            print("Outgoing message: \(outgoingMessage)")
+            for client in clientsSet {
+                if client.username == incomingMessage.sender ||
+                    client.username == incomingMessage.receiver {
+                    print("Client Username: \(String(describing: client.username))")
+                    client.connection.send(jsonString)
+                }
             }
         }
         catch {
